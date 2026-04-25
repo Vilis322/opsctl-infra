@@ -1,0 +1,118 @@
+# All demo services on one VPS (64.111.93.210)
+# Pattern: X001 = demo-prod, X002 = demo-stage
+# demo-prod: cluster mode (2 instances), *.opsctl.tech
+# demo-stage: fork mode (1 instance), pryiomyshev.*.dev or *.dev
+
+node_version: "20"
+pg_port: 5432
+redis_url: "redis://localhost:6379"
+
+services:
+  - name: domctl
+    repo: "git@github.com:Vilis322/domctl.git"
+    environments:
+      - env: demo-prod
+        domain: domctl.opsctl.tech
+        port: 3001
+        pm2_name: domctl_demo
+        pm2_mode: cluster
+        pm2_instances: 2
+        app_dir: /var/www/domctl-demo
+        db_name: domctl_demo
+        db_user: domctl_demo
+        branch: main
+        demo_mode: "true"
+        redis_db: 0
+
+      - env: demo-stage
+        domain: domctl.dev
+        aliases:
+          - pryiomyshev.domctl.dev
+        port: 3002
+        pm2_name: domctl_demo_stage
+        pm2_mode: fork
+        pm2_instances: 1
+        app_dir: /var/www/domctl-demo-stage
+        db_name: domctl_demo_stage
+        db_user: domctl_demo_stage
+        branch: stage
+        demo_mode: "true"
+        redis_db: 1
+
+  - name: fincrm
+    repo: "git@github.com:Vilis322/financecrm.git"
+    environments:
+      - env: demo-prod
+        domain: financecrm.opsctl.tech
+        port: 4001
+        pm2_name: fincrm_demo
+        pm2_mode: cluster
+        pm2_instances: 2
+        app_dir: /var/www/fincrm-demo
+        db_name: fincrm_demo
+        db_user: fincrm_demo
+        branch: main
+        demo_mode: "true"
+        redis_db: 2
+
+      - env: demo-stage
+        domain: financecrm.dev
+        aliases:
+          - pryiomyshev.financecrm.dev
+        port: 4002
+        pm2_name: fincrm_demo_stage
+        pm2_mode: fork
+        pm2_instances: 1
+        app_dir: /var/www/fincrm-demo-stage
+        db_name: fincrm_demo_stage
+        db_user: fincrm_demo_stage
+        branch: stage
+        demo_mode: "true"
+        redis_db: 3
+
+  - name: worknest
+    repo: "git@github.com:Vilis322/worknest.git"
+    environments:
+      - env: demo-prod
+        domain: worknest.opsctl.tech
+        port: 5001
+        pm2_name: worknest_demo
+        pm2_mode: cluster
+        pm2_instances: 2
+        app_dir: /var/www/worknest-demo
+        db_name: worknest_demo
+        db_user: worknest_demo
+        branch: main
+        demo_mode: "true"
+        redis_db: 4
+
+      - env: demo-stage
+        domain: worknest.dev
+        aliases:
+          - pryiomyshev.worknest.dev
+        port: 5002
+        pm2_name: worknest_demo_stage
+        pm2_mode: fork
+        pm2_instances: 1
+        app_dir: /var/www/worknest-demo-stage
+        db_name: worknest_demo_stage
+        db_user: worknest_demo_stage
+        branch: stage
+        demo_mode: "true"
+        redis_db: 5
+
+  - name: ai
+    repo: "git@github.com:Vilis322/MLPlatform.git"
+    environments:
+      - env: demo-stage
+        domain: ai.opsctl.tech
+        port: 7001
+        pm2_name: ai_demo
+        pm2_mode: fork
+        pm2_instances: 1
+        app_dir: /var/www/ai-demo
+        db_name: ai_demo
+        db_user: ai_demo
+        branch: main
+        demo_mode: "true"
+        redis_db: 8

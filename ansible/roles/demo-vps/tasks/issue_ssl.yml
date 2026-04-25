@@ -1,0 +1,76 @@
+---
+# Issue SSL certificate for a single domain
+# Called with svc_env = [service, environment]
+# Logic: check cert → check DNS → issue or skip with appropriate log level
+
+- name: "[SSL] Check existing cert for {{ svc_env.1.domain }}"
+  stat:
+    path: "/etc/letsencrypt/live/{{ svc_env.1.domain }}/fullchain.pem"
+  register: ssl_cert
+
+- name: "[INFO] {{ svc_env.1.domain }} — SSL certificate already exists, skipping"
+  debug:
+    msg: "Certificate found at /etc/letsencrypt/live/{{ svc_env.1.domain }}/fullchain.pem"
+  when: ssl_cert.stat.exists
+
+- name: "[SSL] Check DNS resolution for {{ svc_env.1.domain }}"
+  shell: |
+    RESOLVED_IP=$(dig +short {{ svc_env.1.domain }} A 2>/dev/null | tail -1)
+    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+    if [ -z "$RESOLVED_IP" ]; then
+      echo "NO_DNS"
+    elif [ "$RESOLVED_IP" = "$SERVER_IP" ]; then
+      echo "OK"
+    else
+      echo "WRONG_IP:$RESOLVED_IP (expected $SERVER_IP)"
+    fi
+  register: dns_check
+  changed_when: false
+  when: not ssl_cert.stat.exists
+
+- name: "[SKIP] {{ svc_env.1.domain }} — no DNS record, skipping SSL"
+  debug:
+    msg: "Domain {{ svc_env.1.domain }} has no A record. Create DNS record pointing to this server first."
+  when:
+    - not ssl_cert.stat.exists
+    - dns_check.stdout is defined
+    - "'NO_DNS' in dns_check.stdout"
+
+- name: "[SKIP] {{ svc_env.1.domain }} — DNS points elsewhere, skipping SSL"
+  debug:
+    msg: "Domain {{ svc_env.1.domain }} resolves to {{ dns_check.stdout }}. Must point to this server."
+  when:
+    - not ssl_cert.stat.exists
+    - dns_check.stdout is defined
+    - "'WRONG_IP' in dns_check.stdout"
+
+- name: "[SSL] Issue certificate for {{ svc_env.1.domain }}"
+  shell: |
+    certbot certonly --webroot -w /var/www/html \
+      -d {{ svc_env.1.domain }} \
+      {% for alias in svc_env.1.aliases | default([]) %}-d {{ alias }} {% endfor %}\
+      --non-interactive --agree-tos \
+      --email admin@opsctl.tech \
+      2>&1
+  register: certbot_result
+  when:
+    - not ssl_cert.stat.exists
+    - dns_check.stdout is defined
+    - "'OK' in dns_check.stdout"
+  ignore_errors: yes
+
+- name: "[OK] {{ svc_env.1.domain }} — SSL certificate issued"
+  debug:
+    msg: "Certificate issued successfully for {{ svc_env.1.domain }}"
+  when:
+    - certbot_result is defined
+    - certbot_result.rc is defined
+    - certbot_result.rc == 0
+
+- name: "[ERROR] {{ svc_env.1.domain }} — SSL certificate issuance FAILED"
+  debug:
+    msg: "Certbot failed for {{ svc_env.1.domain }}: {{ certbot_result.stderr | default(certbot_result.stdout | default('unknown error')) }}"
+  when:
+    - certbot_result is defined
+    - certbot_result.rc is defined
+    - certbot_result.rc != 0

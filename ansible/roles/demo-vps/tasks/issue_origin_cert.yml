@@ -1,0 +1,86 @@
+---
+# Issue Cloudflare Origin Certificate for a domain
+# Called with svc_env = [service, environment]
+# Requires cf_api_token variable (passed via -e or env)
+
+- name: "[SSL] Check existing origin cert for {{ svc_env.1.domain }}"
+  stat:
+    path: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+  register: origin_cert
+
+- name: "[INFO] {{ svc_env.1.domain }} — Origin cert already exists, skipping"
+  debug:
+    msg: "Certificate found at /etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+  when: origin_cert.stat.exists
+
+- name: "[SSL] Generate Origin Certificate for {{ svc_env.1.domain }}"
+  uri:
+    url: "https://api.cloudflare.com/client/v4/certificates"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cf_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      hostnames:
+        - "{{ svc_env.1.domain }}"
+        - "{{ svc_env.1.aliases | default([]) | join('\",\"') }}"
+      requested_validity: 5475
+      request_type: "origin-rsa"
+      csr: ""
+    status_code: [200, 201]
+  register: cf_cert_result
+  delegate_to: localhost
+  become: no
+  when: not origin_cert.stat.exists
+  ignore_errors: yes
+
+- name: "[SSL] Create SSL directory"
+  file:
+    path: /etc/ssl/cloudflare
+    state: directory
+    mode: "0700"
+  when:
+    - not origin_cert.stat.exists
+    - cf_cert_result is defined
+    - cf_cert_result.status is defined
+    - cf_cert_result.status in [200, 201]
+
+- name: "[SSL] Save certificate for {{ svc_env.1.domain }}"
+  copy:
+    content: "{{ cf_cert_result.json.result.certificate }}"
+    dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+    mode: "0644"
+  when:
+    - not origin_cert.stat.exists
+    - cf_cert_result is defined
+    - cf_cert_result.status is defined
+    - cf_cert_result.status in [200, 201]
+
+- name: "[SSL] Save private key for {{ svc_env.1.domain }}"
+  copy:
+    content: "{{ cf_cert_result.json.result.private_key }}"
+    dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.key"
+    mode: "0600"
+  when:
+    - not origin_cert.stat.exists
+    - cf_cert_result is defined
+    - cf_cert_result.status is defined
+    - cf_cert_result.status in [200, 201]
+  no_log: true
+
+- name: "[OK] {{ svc_env.1.domain }} — Origin cert issued (15 years)"
+  debug:
+    msg: "Certificate saved to /etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+  when:
+    - cf_cert_result is defined
+    - cf_cert_result.status is defined
+    - cf_cert_result.status in [200, 201]
+
+- name: "[ERROR] {{ svc_env.1.domain }} — Origin cert FAILED"
+  debug:
+    msg: "CF API error: {{ cf_cert_result.json.errors | default(cf_cert_result.msg | default('unknown')) }}"
+  when:
+    - not origin_cert.stat.exists
+    - cf_cert_result is defined
+    - (cf_cert_result.failed | default(false) or cf_cert_result.status is not defined or cf_cert_result.status not in [200, 201])

@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['localhost:9100']
+        labels:
+          instance: 'demo-vps'
+
+  - job_name: 'domctl'
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ['localhost:3001']
+        labels:
+          service: 'domctl'
+          env: 'demo-prod'
+      - targets: ['localhost:3002']
+        labels:
+          service: 'domctl'
+          env: 'demo-stage'
+
+  - job_name: 'financecrm'
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ['localhost:4001']
+        labels:
+          service: 'financecrm'
+          env: 'demo-prod'
+      - targets: ['localhost:4002']
+        labels:
+          service: 'financecrm'
+          env: 'demo-stage'
+
+  - job_name: 'worknest'
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ['localhost:5011']
+        labels:
+          service: 'worknest'
+          env: 'demo-prod'
+      - targets: ['localhost:5012']
+        labels:
+          service: 'worknest'
+          env: 'demo-stage'
+

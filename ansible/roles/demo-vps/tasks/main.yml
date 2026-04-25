@@ -1,0 +1,250 @@
+---
+# Demo VPS setup — all demo instances on one server
+# Idempotent: safe to run multiple times
+
+# ============================================================
+# 1. System packages
+# ============================================================
+
+- name: Install required packages
+  apt:
+    name:
+      - nginx
+      - certbot
+      - python3-certbot-nginx
+      - postgresql
+      - postgresql-contrib
+      - python3-psycopg2
+      - redis-server
+      - git
+      - curl
+      - dnsutils
+    state: present
+    update_cache: yes
+
+- name: Ensure Node.js {{ node_version }} is installed
+  shell: |
+    if ! node -v 2>/dev/null | grep -q "v{{ node_version }}"; then
+      curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -
+      apt-get install -y nodejs
+    fi
+    node -v
+  register: node_check
+  changed_when: "'installed' in node_check.stdout"
+
+- name: Ensure PM2 is installed globally
+  npm:
+    name: pm2
+    global: yes
+    state: present
+
+# ============================================================
+# 2. PostgreSQL — ensure running on 5432
+# ============================================================
+
+- name: Find PostgreSQL config path
+  shell: find /etc/postgresql -name postgresql.conf 2>/dev/null | head -1
+  register: pg_conf_path
+  changed_when: false
+
+- name: Ensure PostgreSQL listens on port {{ pg_port }}
+  lineinfile:
+    path: "{{ pg_conf_path.stdout }}"
+    regexp: "^#?port\\s*="
+    line: "port = {{ pg_port }}"
+  when: pg_conf_path.stdout != ""
+  notify: restart postgresql
+
+- name: Ensure PostgreSQL is running
+  service:
+    name: postgresql
+    state: started
+    enabled: yes
+
+# ============================================================
+# 3. Redis — ensure running
+# ============================================================
+
+- name: Ensure Redis is running
+  service:
+    name: redis-server
+    state: started
+    enabled: yes
+
+# ============================================================
+# 4. Clean up old structure
+# ============================================================
+
+- name: Stop old PM2 processes if they exist
+  shell: |
+    pm2 delete domain_manager 2>/dev/null || true
+    pm2 delete fincrm-demo 2>/dev/null || true
+    pm2 save --force
+  changed_when: false
+
+- name: Remove SleepBot Docker containers if present
+  shell: |
+    docker stop sleepbot_app sleepbot_postgres_prod 2>/dev/null || true
+    docker rm sleepbot_app sleepbot_postgres_prod 2>/dev/null || true
+  changed_when: false
+
+# ============================================================
+# 5. Per-service setup (databases, directories)
+# ============================================================
+
+- name: Create databases and users
+  include_tasks: create_db.yml
+  loop: "{{ services | subelements('environments') }}"
+  loop_control:
+    loop_var: svc_env
+
+- name: Create app directories
+  file:
+    path: "{{ item.1.app_dir }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ services | subelements('environments') }}"
+
+- name: Create logs directories
+  file:
+    path: "{{ item.1.app_dir }}/logs"
+    state: directory
+    mode: "0755"
+  loop: "{{ services | subelements('environments') }}"
+
+# ============================================================
+# 6. Nginx — Phase 1: HTTP-only configs (for certbot)
+# ============================================================
+
+- name: Remove old nginx configs (sites-enabled)
+  file:
+    path: "/etc/nginx/sites-enabled/{{ item }}"
+    state: absent
+  loop:
+    - default
+    - domctl
+    - domain-manager
+    - pryiomyshev.financecrm.dev
+    - pryiomyshev.worknest.dev
+    - pryiomyshev.domctl.dev
+  notify: reload nginx
+
+- name: Remove old nginx configs (sites-available)
+  file:
+    path: "/etc/nginx/sites-available/{{ item }}"
+    state: absent
+  loop:
+    - domctl
+    - domain-manager
+    - pryiomyshev.financecrm.dev
+    - pryiomyshev.worknest.dev
+    - pryiomyshev.domctl.dev
+
+- name: Deploy HTTP-only nginx configs (for SSL issuance)
+  template:
+    src: nginx-site-http.conf.j2
+    dest: "/etc/nginx/sites-available/{{ item.1.domain }}"
+  vars:
+    domain: "{{ item.1.domain }}"
+    app_port: "{{ item.1.port }}"
+    aliases: "{{ item.1.aliases | default([]) }}"
+  loop: "{{ services | subelements('environments') }}"
+
+- name: Enable nginx configs
+  file:
+    src: "/etc/nginx/sites-available/{{ item.1.domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ item.1.domain }}"
+    state: link
+  loop: "{{ services | subelements('environments') }}"
+
+- name: Reload nginx with HTTP-only configs
+  service:
+    name: nginx
+    state: reloaded
+
+# ============================================================
+# 7. SSL — Cloudflare Origin Certificates (Full Strict)
+# ============================================================
+
+- name: Issue Origin Certificates
+  include_tasks: issue_origin_cert.yml
+  loop: "{{ services | subelements('environments') }}"
+  loop_control:
+    loop_var: svc_env
+  when: cf_api_token is defined and cf_api_token != ''
+  tags: ssl_origin
+
+- name: "[SKIP] SSL — no cf_api_token provided, keeping HTTP-only"
+  debug:
+    msg: "Pass -e cf_api_token=YOUR_TOKEN to enable Origin Cert issuance"
+  when: cf_api_token is not defined or cf_api_token == ''
+  tags: ssl_origin
+
+# ============================================================
+# 8. Nginx — Phase 2: upgrade to SSL where origin certs exist
+# ============================================================
+
+- name: Check which origin certs exist
+  stat:
+    path: "/etc/ssl/cloudflare/{{ item.1.domain }}.pem"
+  register: origin_certs
+  loop: "{{ services | subelements('environments') }}"
+
+- name: Deploy SSL nginx configs (where origin certs exist)
+  template:
+    src: nginx-site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ item.item.1.domain }}"
+  vars:
+    domain: "{{ item.item.1.domain }}"
+    app_port: "{{ item.item.1.port }}"
+    aliases: "{{ item.item.1.aliases | default([]) }}"
+  when: item.stat.exists
+  loop: "{{ origin_certs.results }}"
+  loop_control:
+    label: "{{ item.item.1.domain }}"
+  notify: reload nginx
+
+- name: "[INFO] Domains without SSL (HTTP-only, Cloudflare Flexible)"
+  debug:
+    msg: "{{ item.item.1.domain }} — no origin cert, serving HTTP only. Run with -e cf_api_token=TOKEN to issue."
+  when: not item.stat.exists
+  loop: "{{ origin_certs.results }}"
+  loop_control:
+    label: "{{ item.item.1.domain }}"
+
+# ============================================================
+# 9. Nginx — validate and ensure running
+# ============================================================
+
+- name: Validate nginx config
+  command: nginx -t
+  changed_when: false
+
+- name: Ensure nginx is running
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+
+# ============================================================
+# 10. SSH — ensure key-only auth
+# ============================================================
+
+- name: Disable password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+  notify: restart ssh
+
+# ============================================================
+# 11. PM2 startup
+# ============================================================
+
+- name: Configure PM2 startup on boot
+  command: pm2 startup systemd -u root --hp /root
+  changed_when: false
+
+- name: Save PM2 process list
+  command: pm2 save --force
+  changed_when: false

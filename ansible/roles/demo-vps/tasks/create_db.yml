@@ -1,0 +1,23 @@
+---
+# Create PostgreSQL database and user for a service environment
+# Called with svc_env = [service, environment]
+
+- name: "Create DB user {{ svc_env.1.db_user }}"
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: "{{ svc_env.1.db_user }}"
+    password: "{{ lookup('env', svc_env.1.db_name | upper ~ '_DB_PASSWORD') | default('changeme_' ~ svc_env.1.db_name, true) }}"
+    state: present
+    port: "{{ pg_port }}"
+  ignore_errors: yes
+
+- name: "Create DB {{ svc_env.1.db_name }}"
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: "{{ svc_env.1.db_name }}"
+    owner: "{{ svc_env.1.db_user }}"
+    state: present
+    port: "{{ pg_port }}"
+  ignore_errors: yes

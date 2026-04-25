@@ -1,0 +1,46 @@
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # PM2 logs for all services
+  - job_name: pm2-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: pm2
+          __path__: /pm2-logs/*.log
+
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<pm2_id>\d+)\|(?P<service>\w+)\s*\| (?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*?): (?P<message>.*)$'
+      - labels:
+          service:
+          pm2_id:
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05 +00:00'
+
+  # Service-specific logs
+  - job_name: service-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: domctl
+          service: domctl
+          __path__: /var/www/domctl-demo*/logs/*.log
+      - targets: [localhost]
+        labels:
+          job: financecrm
+          service: financecrm
+          __path__: /var/www/fincrm-demo*/logs/*.log
+      - targets: [localhost]
+        labels:
+          job: worknest
+          service: worknest
+          __path__: /var/www/worknest-demo*/backend/logs/*.log

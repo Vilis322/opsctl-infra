@@ -1,0 +1,19 @@
+---
+# Setup Demo VPS — all demo instances (prod + stage) on one server
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-demo-vps.yml
+#
+# What it does:
+#   1. Installs Node.js 20, PM2, nginx, certbot, PostgreSQL, Redis
+#   2. Cleans up old PM2/Docker processes
+#   3. Creates PostgreSQL databases per service per environment
+#   4. Deploys nginx configs with SSL for all subdomains
+#   5. Configures PM2 startup on boot
+#   6. Disables SSH password auth
+
+- name: Setup Demo VPS
+  hosts: demo-vps
+  become: yes
+  roles:
+    - demo-vps
