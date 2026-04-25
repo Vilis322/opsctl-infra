@@ -111,6 +111,16 @@ Creates `demo-prod` and `demo-stage` environments with:
 - **CI/CD pipeline:** GitHub Actions with health check after each deploy
 - **Secrets management:** GitHub Environment Secrets, never in code
 
+## AI-Assisted Workflow
+
+I use Claude Code CLI to generate draft Ansible playbooks and infrastructure configs for repetitive tasks — adding new services, updating nginx vhosts, configuring monitoring scrape targets, and similar work that follows predictable patterns but requires careful YAML.
+
+The workflow is four steps: (1) describe the change in plain English with context about the current state, (2) Claude generates a draft playbook or config, (3) I review and edit — fixing environment-specific values, removing unnecessary parts, adjusting for things only I know about the infrastructure, (4) the reviewed change goes through CI/CD or is applied manually to demo-stage first.
+
+The human review step is non-negotiable. AI is good at Ansible syntax and common patterns but has no awareness of which servers are sensitive, what depends on what at runtime, or when a change needs a maintenance window. Every generated artifact is treated as a starting point, not a finished product.
+
+See [ai-workflows/playbook-generation.md](ai-workflows/playbook-generation.md) for the prompt template, a real example with before/after edits, and notes on what I learned from several months of this workflow.
+
 ## Author
 
 Kyrylo Pryiomyshev — [GitHub](https://github.com/Vilis322)
