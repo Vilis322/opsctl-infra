@@ -10,7 +10,9 @@
 #
 # Usage:
 #   scripts/cf-dns-cutover.sh <OLD_IP> [NEW_IP] [--apply] [--zones "a.tech b.dev"]
+#                             [--only "fqdn1,fqdn2"]
 #   # NEW_IP defaults to `terraform -chdir=terraform output -raw server_ipv4`
+#   # --only restricts changes to the listed FQDNs (default: all records on OLD_IP)
 #
 # Examples:
 #   scripts/cf-dns-cutover.sh 64.111.93.210                 # dry-run, new IP from TF
@@ -26,10 +28,12 @@ OLD_IP="${1:-}"; shift || true
 NEW_IP=""
 APPLY=0
 ZONES="$ZONES_DEFAULT"
+ONLY=""   # optional comma-separated FQDN allowlist; empty = all matching records
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=1 ;;
     --zones) ZONES="$2"; shift ;;
+    --only)  ONLY="$2"; shift ;;
     *) NEW_IP="$1" ;;
   esac
   shift
@@ -71,6 +75,10 @@ for zone in $ZONES; do
     rid="$(jq -r '.id' <<<"$rec")"
     proxied="$(jq -r '.proxied' <<<"$rec")"
     ttl="$(jq -r '.ttl' <<<"$rec")"
+    if [[ -n "$ONLY" && ",$ONLY," != *",$name,"* ]]; then
+      echo "[$zone] $name  — skipped (not in --only list)"
+      continue
+    fi
     echo "[$zone] $name  $OLD_IP -> $NEW_IP  (proxied=$proxied)"
     if [[ $APPLY -eq 1 ]]; then
       body="$(jq -n --arg n "$name" --arg c "$NEW_IP" --argjson p "$proxied" --argjson t "$ttl" \
