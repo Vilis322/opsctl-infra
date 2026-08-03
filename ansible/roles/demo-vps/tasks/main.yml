@@ -94,7 +94,7 @@
 
 - name: Create databases and users
   include_tasks: create_db.yml
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
   loop_control:
     loop_var: svc_env
 
@@ -103,14 +103,14 @@
     path: "{{ item.1.app_dir }}"
     state: directory
     mode: "0755"
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
 
 - name: Create logs directories
   file:
     path: "{{ item.1.app_dir }}/logs"
     state: directory
     mode: "0755"
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
 
 # ============================================================
 # 6. Nginx — Phase 1: HTTP-only configs (for certbot)
@@ -148,14 +148,14 @@
     domain: "{{ item.1.domain }}"
     app_port: "{{ item.1.port }}"
     aliases: "{{ item.1.aliases | default([]) }}"
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
 
 - name: Enable nginx configs
   file:
     src: "/etc/nginx/sites-available/{{ item.1.domain }}"
     dest: "/etc/nginx/sites-enabled/{{ item.1.domain }}"
     state: link
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
 
 - name: Reload nginx with HTTP-only configs
   service:
@@ -168,7 +168,7 @@
 
 - name: Issue Origin Certificates
   include_tasks: issue_origin_cert.yml
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
   loop_control:
     loop_var: svc_env
   when: cf_api_token is defined and cf_api_token != ''
@@ -188,7 +188,7 @@
   stat:
     path: "/etc/ssl/cloudflare/{{ item.1.domain }}.pem"
   register: origin_certs
-  loop: "{{ services | subelements('environments') }}"
+  loop: "{{ service_envs }}"
 
 - name: Deploy SSL nginx configs (where origin certs exist)
   template:

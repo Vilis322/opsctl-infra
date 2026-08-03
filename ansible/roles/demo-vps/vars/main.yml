@@ -7,6 +7,16 @@ node_version: "20"
 pg_port: 5432
 redis_url: "redis://localhost:6379"
 
+# Environment scoping. deploy_envs empty = provision ALL environments (default,
+# backward-compatible). Pass -e '{"deploy_envs":["demo-prod"]}' to limit the run.
+# service_envs is the [service, environment] pair list every loop iterates.
+deploy_envs: []
+service_envs: >-
+  {{ (services | subelements('environments'))
+     if (deploy_envs | length == 0)
+     else (services | subelements('environments')
+           | selectattr('1.env', 'in', deploy_envs) | list) }}
+
 services:
   - name: domctl
     repo: "git@github.com:Vilis322/domctl.git"
