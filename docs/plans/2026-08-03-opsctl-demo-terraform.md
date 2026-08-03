@@ -16,7 +16,9 @@
 - Private network attached via **inline `network {}` block only**. Never add a separate `hcloud_server_network` resource for this server (conflict).
 - SSH key = `~/.ssh/id_ed25519_demo` (Terraform uploads `id_ed25519_demo.pub`; Ansible authenticates with the private half). The keypair already exists.
 - `ssh_allowed_ips = ["0.0.0.0/0", "::/0"]` (key-only auth). Not locked to a single IP (user's IP roams).
-- **Secrets:** the Hetzner token is NEVER written literally into a command or a committed file. It lives in `~/.hcloud-token` (chmod 600, outside the repo) and is read inline via `$(cat ~/.hcloud-token)`.
+- **Secrets:** the Hetzner token is NEVER written literally into a command or a committed file. It lives in `~/.hcloud-token` (chmod 600, outside the repo) and is read inline via `$(cat ~/.hcloud-token)`. Same rule for the Cloudflare token → `~/.cloudflare-token`.
+- **DNS before SSL:** `*.opsctl.tech` A records must point at the new IP (Task 5) before the Ansible Let's Encrypt step (Task 7) runs, or HTTP-01 issuance fails. Old demo IP = `64.111.93.210`.
+- **Stage is OUT OF SCOPE:** provision **demo-prod only**. Skip all `*.dev` domains, all `demo-stage` environments, and `ai.opsctl.tech` (it is demo-stage). In scope: `domctl`, `financecrm`, `worknest` (demo-prod) + `grafana` (monitoring).
 - State is local `terraform.tfstate`, git-ignored. No remote backend.
 - `terraform apply` creates billable infrastructure — it is an explicit user-approval checkpoint, never run unattended.
 
@@ -220,7 +222,70 @@ Expected: logs in without a password prompt; `Architecture: arm64` / `aarch64` c
 
 ---
 
-### Task 5: Terraform → Ansible handoff helper
+### Task 5: Cloudflare DNS cutover (repoint demo domains to the new IP)
+
+**Files:**
+- Create: `~/.cloudflare-token` (outside repo, chmod 600) — user pastes a token with `Zone.DNS:Edit`.
+- Use: `opsctl-infra/scripts/cf-dns-cutover.sh` (already written).
+
+**Interfaces:**
+- Consumes: new `server_ipv4` (from TF output), old IP `64.111.93.210`.
+- Produces: `*.opsctl.tech` demo A records point at the new Hetzner IP.
+
+**Why here:** the Ansible SSL step (`issue_ssl.yml`, Let's Encrypt HTTP-01)
+requires the domains to already resolve to the new box. DNS must flip BEFORE
+Task 7.
+
+**Prod records affected (opsctl.tech zone):** `domctl`, `financecrm`,
+`worknest`, `grafana`. The script finds them generically by matching the old
+IP, so no hardcoded list. It will also repoint `ai.opsctl.tech` if that still
+points at the old IP — harmless (stage, not served), leave or delete manually.
+
+- [ ] **Step 1: User stores the Cloudflare token**
+
+```
+! printf '%s' 'PASTE_CF_TOKEN_HERE' > ~/.cloudflare-token && chmod 600 ~/.cloudflare-token
+```
+
+- [ ] **Step 2: Dry-run — see exactly what would change**
+
+```bash
+cd ~/Projects/saas/opsctl-infra
+./scripts/cf-dns-cutover.sh 64.111.93.210
+```
+Expected: lists each `*.opsctl.tech` A record currently on `64.111.93.210`
+with `-> <new IP>`, and "dry-run — N record(s) would change". New IP is read
+from `terraform output` automatically.
+
+- [ ] **Step 3: Review the list with the user, then apply**
+
+```bash
+./scripts/cf-dns-cutover.sh 64.111.93.210 --apply
+```
+Expected: each record prints "updated"; "done — N record(s) updated".
+
+- [ ] **Step 4: Verify resolution**
+
+```bash
+for d in domctl financecrm worknest grafana; do
+  echo -n "$d.opsctl.tech -> "; dig +short "$d.opsctl.tech" A | tail -1
+done
+```
+Expected: each resolves to the new IP (or Cloudflare proxy IPs if the record
+is proxied — in that case check the CF dashboard shows the new origin).
+
+- [ ] **Step 5: Commit the script**
+
+```bash
+git add scripts/cf-dns-cutover.sh
+git commit -m "feat: add Cloudflare DNS cutover script for demo domains
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Terraform → Ansible handoff helper
 
 **Files:**
 - Create: `opsctl-infra/scripts/tf-to-ansible.sh`
@@ -270,13 +335,22 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Provision the box with Ansible
+### Task 7: Provision the box with Ansible
 
 **Files:** none (uses existing `ansible/` role).
 
 **Interfaces:**
-- Consumes: `DEMO_VPS_IP` from Task 5; the demo private key.
+- Consumes: `DEMO_VPS_IP` from Task 6; the demo private key.
 - Produces: a fully provisioned demo VPS (Node 20, PostgreSQL 16, Redis 7, nginx, PM2, key-only SSH).
+
+**Scope — demo-prod only.** The role's `vars/main.yml` lists both demo-prod
+and demo-stage environments; running all of them would try to issue SSL for
+`*.dev` (no DNS → Let's Encrypt fails) and provision `ai` (stage). Before
+running, gate the per-environment loops on a `deploy_envs` var. When we reach
+this task, inspect `roles/demo-vps/tasks/main.yml` + `create_db.yml` +
+`issue_ssl.yml`, add `deploy_envs: ["demo-prod"]` (role default), and add
+`when: env_item.env in deploy_envs` to each environment loop. Run with the
+default (no stage). This is the one role edit this plan introduces.
 
 - [ ] **Step 1: Connectivity check via Ansible**
 
@@ -315,7 +389,7 @@ Expected: Node 20.x, PostgreSQL 16, Redis 7, nginx, PM2 installed; `pm2 ls` show
 
 ---
 
-### Task 7: Infrastructure walkthrough (documentation for the user)
+### Task 8: Infrastructure walkthrough (documentation for the user)
 
 **Files:** none (explanatory session; optionally capture notes in `opsctl-infra/README.md` if gaps are found).
 
