@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in. NEVER commit the real tfvars.
+# Preferred alternative: export TF_VAR_hcloud_token=... in your shell instead.
+
+hcloud_token = "PASTE_YOUR_READ_WRITE_TOKEN_HERE"
+
+# Optional overrides:
+# server_type         = "cax21"
+# location            = "hel1"
+# ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# ssh_allowed_ips     = ["YOUR.IP.HERE/32"]   # lock SSH to your IP
