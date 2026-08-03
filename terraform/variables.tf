@@ -5,15 +5,15 @@ variable "hcloud_token" {
 }
 
 variable "location" {
-  description = "Hetzner location. hel1 = Helsinki (closest to Estonia), fsn1 = Falkenstein, nbg1 = Nuremberg. CAX/ARM is available in all three."
+  description = "Hetzner location. hel1 = Helsinki (closest to Estonia), fsn1 = Falkenstein, nbg1 = Nuremberg."
   type        = string
   default     = "hel1"
 }
 
 variable "server_type" {
-  description = "ARM (Ampere) server type. cax11 = 2 vCPU/4GB, cax21 = 4 vCPU/8GB, cax31 = 8 vCPU/16GB."
+  description = "Server type. cx33 = 4 vCPU/8GB, CX Gen3 (shared, vendor-agnostic: Intel OR AMD, CPU not selectable, may change on rescale). ARM alt: cax21 = 4 vCPU/8GB (preferred, but eu-central had no CAX capacity on 2026-08-03). Apps are arch-agnostic, so CX Gen3 is fine."
   type        = string
-  default     = "cax21"
+  default     = "cx33"
 }
 
 variable "image" {
