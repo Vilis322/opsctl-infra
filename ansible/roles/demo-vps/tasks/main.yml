@@ -213,6 +213,13 @@
     label: "{{ item.item.1.domain }}"
 
 # ============================================================
+# 8b. Static dashboard at apex domain (opsctl.tech)
+# ============================================================
+
+- name: Configure apex dashboard vhost
+  include_tasks: configure_dashboard.yml
+
+# ============================================================
 # 9. Nginx — validate and ensure running
 # ============================================================
 

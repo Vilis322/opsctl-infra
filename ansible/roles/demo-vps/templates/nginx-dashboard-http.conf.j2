@@ -1,0 +1,12 @@
+# HTTP-only static dashboard config — used before the origin cert is issued
+server {
+    listen 80;
+    server_name {{ dashboard.domain }}{% if dashboard.aliases is defined %} {{ dashboard.aliases | join(' ') }}{% endif %};
+
+    root {{ dashboard.web_root }};
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

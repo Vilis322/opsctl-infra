@@ -17,6 +17,15 @@ service_envs: >-
      else (services | subelements('environments')
            | selectattr('1.env', 'in', deploy_envs) | list) }}
 
+# Static landing/hub served at the apex domain. Content (dist/) is seeded
+# separately (one-time rsync now, CI/CD later) — the role only sets up the
+# nginx vhost, web root, and origin cert.
+dashboard:
+  domain: opsctl.tech
+  aliases:
+    - www.opsctl.tech
+  web_root: /var/www/opsctl-dashboard
+
 services:
   - name: domctl
     repo: "git@github.com:Vilis322/domctl.git"

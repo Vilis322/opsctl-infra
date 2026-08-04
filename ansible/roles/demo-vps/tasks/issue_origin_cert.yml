@@ -22,9 +22,7 @@
       Content-Type: "application/json"
     body_format: json
     body:
-      hostnames:
-        - "{{ svc_env.1.domain }}"
-        - "{{ svc_env.1.aliases | default([]) | join('\",\"') }}"
+      hostnames: "{{ [svc_env.1.domain] + (svc_env.1.aliases | default([])) }}"
       requested_validity: 5475
       request_type: "origin-rsa"
       csr: ""

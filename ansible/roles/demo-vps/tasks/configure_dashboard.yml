@@ -1,0 +1,53 @@
+---
+# Static landing/hub at the apex domain ({{ dashboard.domain }}).
+# Two-phase, mirroring the service SSL flow: HTTP vhost -> origin cert -> SSL vhost.
+# Content (dist/) is seeded outside Ansible (one-time rsync now, CI/CD later).
+
+- name: "[dashboard] Ensure web root exists"
+  file:
+    path: "{{ dashboard.web_root }}"
+    state: directory
+    mode: "0755"
+
+- name: "[dashboard] Deploy HTTP-only vhost (pre-cert)"
+  template:
+    src: nginx-dashboard-http.conf.j2
+    dest: "/etc/nginx/sites-available/{{ dashboard.domain }}"
+
+- name: "[dashboard] Enable vhost"
+  file:
+    src: "/etc/nginx/sites-available/{{ dashboard.domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ dashboard.domain }}"
+    state: link
+
+- name: "[dashboard] Reload nginx with HTTP vhost"
+  service:
+    name: nginx
+    state: reloaded
+
+- name: "[dashboard] Issue origin certificate"
+  include_tasks: issue_origin_cert.yml
+  vars:
+    svc_env:
+      - {}
+      - domain: "{{ dashboard.domain }}"
+        aliases: "{{ dashboard.aliases }}"
+  when: cf_api_token is defined and cf_api_token != ''
+  tags: ssl_origin
+
+- name: "[dashboard] Check whether origin cert exists"
+  stat:
+    path: "/etc/ssl/cloudflare/{{ dashboard.domain }}.pem"
+  register: dashboard_cert
+
+- name: "[dashboard] Upgrade to SSL vhost (cert present)"
+  template:
+    src: nginx-dashboard.conf.j2
+    dest: "/etc/nginx/sites-available/{{ dashboard.domain }}"
+  when: dashboard_cert.stat.exists
+  notify: reload nginx
+
+- name: "[dashboard] [INFO] no origin cert — serving HTTP only"
+  debug:
+    msg: "{{ dashboard.domain }} — no origin cert, HTTP only. Run with -e cf_api_token=TOKEN."
+  when: not dashboard_cert.stat.exists

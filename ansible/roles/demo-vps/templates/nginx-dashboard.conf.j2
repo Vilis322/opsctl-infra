@@ -1,0 +1,31 @@
+# SSL static dashboard config (Cloudflare Origin cert, Full Strict)
+server {
+    listen 80;
+    server_name {{ dashboard.domain }}{% if dashboard.aliases is defined %} {{ dashboard.aliases | join(' ') }}{% endif %};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name {{ dashboard.domain }}{% if dashboard.aliases is defined %} {{ dashboard.aliases | join(' ') }}{% endif %};
+
+    ssl_certificate /etc/ssl/cloudflare/{{ dashboard.domain }}.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/{{ dashboard.domain }}.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    root {{ dashboard.web_root }};
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Vite build assets are content-hashed — cache aggressively
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
