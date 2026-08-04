@@ -63,6 +63,7 @@ services:
     environments:
       - env: demo-prod
         domain: financecrm.opsctl.tech
+        frontend_dist: /var/www/fincrm-demo/frontend/dist
         port: 4001
         pm2_name: fincrm_demo
         pm2_mode: cluster

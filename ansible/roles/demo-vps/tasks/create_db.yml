@@ -7,7 +7,7 @@
   become_user: postgres
   community.postgresql.postgresql_user:
     name: "{{ svc_env.1.db_user }}"
-    password: "{{ lookup('env', svc_env.1.db_name | upper ~ '_DB_PASSWORD') | default('changeme_' ~ svc_env.1.db_name, true) }}"
+    password: "{{ lookup('env', svc_env.1.db_name | upper ~ '_DB_PASSWORD') | default(omit, true) }}"
     state: present
     port: "{{ pg_port }}"
   ignore_errors: yes
