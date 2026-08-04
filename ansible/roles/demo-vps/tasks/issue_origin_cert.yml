@@ -1,84 +1,99 @@
 ---
-# Issue Cloudflare Origin Certificate for a domain
-# Called with svc_env = [service, environment]
-# Requires cf_api_token variable (passed via -e or env)
+# Issue a Cloudflare Origin CA certificate for svc_env.1.domain (+ aliases).
+# The Origin CA endpoint requires a CSR, so we generate the key + CSR locally,
+# submit the CSR, then save the returned certificate AND the local key onto
+# the server. Requires cf_api_token (token with SSL and Certificates: Edit).
+# Idempotent: skips when the cert already exists on the server.
 
 - name: "[SSL] Check existing origin cert for {{ svc_env.1.domain }}"
   stat:
     path: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
   register: origin_cert
 
-- name: "[INFO] {{ svc_env.1.domain }} — Origin cert already exists, skipping"
+- name: "[INFO] {{ svc_env.1.domain }} — origin cert already exists, skipping"
   debug:
     msg: "Certificate found at /etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
   when: origin_cert.stat.exists
 
-- name: "[SSL] Generate Origin Certificate for {{ svc_env.1.domain }}"
-  uri:
-    url: "https://api.cloudflare.com/client/v4/certificates"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ cf_api_token }}"
-      Content-Type: "application/json"
-    body_format: json
-    body:
-      hostnames: "{{ [svc_env.1.domain] + (svc_env.1.aliases | default([])) }}"
-      requested_validity: 5475
-      request_type: "origin-rsa"
-      csr: ""
-    status_code: [200, 201]
-  register: cf_cert_result
-  delegate_to: localhost
-  become: no
+- block:
+    - name: "[SSL] Local temp dir for {{ svc_env.1.domain }} key/CSR"
+      file:
+        path: "/tmp/opsctl-origin-certs"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: no
+
+    - name: "[SSL] Generate private key for {{ svc_env.1.domain }}"
+      command: >-
+        openssl genrsa -out /tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.key 2048
+      args:
+        creates: "/tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.key"
+      delegate_to: localhost
+      become: no
+
+    - name: "[SSL] Generate CSR for {{ svc_env.1.domain }}"
+      command: >-
+        openssl req -new
+        -key /tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.key
+        -out /tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.csr
+        -subj "/CN={{ svc_env.1.domain }}"
+        -addext "subjectAltName={{ ([svc_env.1.domain] + (svc_env.1.aliases | default([]))) | map('regex_replace', '^', 'DNS:') | join(',') }}"
+      args:
+        creates: "/tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.csr"
+      delegate_to: localhost
+      become: no
+
+    - name: "[SSL] Read CSR for {{ svc_env.1.domain }}"
+      slurp:
+        src: "/tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.csr"
+      register: csr_file
+      delegate_to: localhost
+      become: no
+
+    - name: "[SSL] Request Origin Certificate for {{ svc_env.1.domain }}"
+      uri:
+        url: "https://api.cloudflare.com/client/v4/certificates"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ cf_api_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          hostnames: "{{ [svc_env.1.domain] + (svc_env.1.aliases | default([])) }}"
+          requested_validity: 5475
+          request_type: "origin-rsa"
+          csr: "{{ csr_file.content | b64decode }}"
+        status_code: [200, 201]
+      register: cf_cert_result
+      delegate_to: localhost
+      become: no
+
+    - name: "[SSL] Create SSL directory on server"
+      file:
+        path: /etc/ssl/cloudflare
+        state: directory
+        mode: "0700"
+
+    - name: "[SSL] Save certificate for {{ svc_env.1.domain }}"
+      copy:
+        content: "{{ cf_cert_result.json.result.certificate }}"
+        dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+        mode: "0644"
+
+    - name: "[SSL] Install private key for {{ svc_env.1.domain }}"
+      copy:
+        src: "/tmp/opsctl-origin-certs/{{ svc_env.1.domain }}.key"
+        dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.key"
+        mode: "0600"
+      no_log: true
+
+    - name: "[OK] {{ svc_env.1.domain }} — origin cert issued (15 years)"
+      debug:
+        msg: "Certificate saved to /etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
+
   when: not origin_cert.stat.exists
-  ignore_errors: yes
-
-- name: "[SSL] Create SSL directory"
-  file:
-    path: /etc/ssl/cloudflare
-    state: directory
-    mode: "0700"
-  when:
-    - not origin_cert.stat.exists
-    - cf_cert_result is defined
-    - cf_cert_result.status is defined
-    - cf_cert_result.status in [200, 201]
-
-- name: "[SSL] Save certificate for {{ svc_env.1.domain }}"
-  copy:
-    content: "{{ cf_cert_result.json.result.certificate }}"
-    dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
-    mode: "0644"
-  when:
-    - not origin_cert.stat.exists
-    - cf_cert_result is defined
-    - cf_cert_result.status is defined
-    - cf_cert_result.status in [200, 201]
-
-- name: "[SSL] Save private key for {{ svc_env.1.domain }}"
-  copy:
-    content: "{{ cf_cert_result.json.result.private_key }}"
-    dest: "/etc/ssl/cloudflare/{{ svc_env.1.domain }}.key"
-    mode: "0600"
-  when:
-    - not origin_cert.stat.exists
-    - cf_cert_result is defined
-    - cf_cert_result.status is defined
-    - cf_cert_result.status in [200, 201]
-  no_log: true
-
-- name: "[OK] {{ svc_env.1.domain }} — Origin cert issued (15 years)"
-  debug:
-    msg: "Certificate saved to /etc/ssl/cloudflare/{{ svc_env.1.domain }}.pem"
-  when:
-    - cf_cert_result is defined
-    - cf_cert_result.status is defined
-    - cf_cert_result.status in [200, 201]
-
-- name: "[ERROR] {{ svc_env.1.domain }} — Origin cert FAILED"
-  debug:
-    msg: "CF API error: {{ cf_cert_result.json.errors | default(cf_cert_result.msg | default('unknown')) }}"
-  when:
-    - not origin_cert.stat.exists
-    - cf_cert_result is defined
-    - (cf_cert_result.failed | default(false) or cf_cert_result.status is not defined or cf_cert_result.status not in [200, 201])
+  rescue:
+    - name: "[ERROR] {{ svc_env.1.domain }} — origin cert FAILED"
+      debug:
+        msg: "CF API / openssl error for {{ svc_env.1.domain }}: {{ cf_cert_result.json.errors | default(ansible_failed_result.msg | default('unknown')) }}"
