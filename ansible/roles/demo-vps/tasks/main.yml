@@ -149,6 +149,7 @@
     app_port: "{{ item.1.port }}"
     aliases: "{{ item.1.aliases | default([]) }}"
     frontend_dist: "{{ item.1.frontend_dist | default('') }}"
+    api_port: "{{ item.1.api_port | default('') }}"
   loop: "{{ service_envs }}"
 
 - name: Enable nginx configs
@@ -200,6 +201,7 @@
     app_port: "{{ item.item.1.port }}"
     aliases: "{{ item.item.1.aliases | default([]) }}"
     frontend_dist: "{{ item.item.1.frontend_dist | default('') }}"
+    api_port: "{{ item.item.1.api_port | default('') }}"
   when: item.stat.exists
   loop: "{{ origin_certs.results }}"
   loop_control:

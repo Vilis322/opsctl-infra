@@ -96,6 +96,7 @@ services:
       - env: demo-prod
         domain: worknest.opsctl.tech
         port: 5001
+        api_port: 5011
         pm2_name: worknest_demo
         pm2_mode: cluster
         pm2_instances: 2
