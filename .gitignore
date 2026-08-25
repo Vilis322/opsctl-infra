@@ -1,0 +1,5 @@
+# macOS
+.DS_Store
+
+# Local-only notes (personal learning docs, not part of the published repo)
+docs/local/

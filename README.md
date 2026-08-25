@@ -72,7 +72,7 @@ Each service has isolated databases per environment (demo-prod, demo-stage).
 
 ## Monitoring Stack
 
-Docker Compose stack for observability:
+Docker Compose stack for observability (configuration only — not yet deployed to the demo host):
 
 ```bash
 cd monitoring
@@ -86,7 +86,7 @@ docker compose up -d
 | Loki | 3101 | Log aggregation |
 | Promtail | — | Log scraping from PM2 and service logs |
 
-**Grafana access:** `https://grafana.opsctl.tech` (admin/admin)
+**Status:** configuration only. Planned: deploy to the demo host and expose Grafana at `grafana.opsctl.tech`.
 
 ## GitHub Environment Scripts
 
